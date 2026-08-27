@@ -1,5 +1,42 @@
 name: Controlla News Americisss
+      - name: Diagnostica pagina News
+        run: |
+          python - <<'PY'
+          import urllib.request
+          from html.parser import HTMLParser
 
+          url = "https://www.americisss.it/news/"
+
+          request = urllib.request.Request(
+              url,
+              headers={"User-Agent": "Mozilla/5.0"}
+          )
+
+          html = urllib.request.urlopen(
+              request,
+              timeout=30
+          ).read().decode("utf-8", errors="ignore")
+
+          class TextParser(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.text = []
+
+              def handle_data(self, data):
+                  data = " ".join(data.split())
+                  if data:
+                      self.text.append(data)
+
+          parser = TextParser()
+          parser.feed(html)
+
+          print("===== TESTO DELLA PAGINA =====")
+
+          for text in parser.text:
+              print(text)
+
+          print("===== FINE PAGINA =====")
+          PY
 on:
   schedule:
     - cron: "0 9 * * *"
