@@ -5,7 +5,8 @@ import smtplib
 import urllib.request
 from email.message import EmailMessage
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+
 
 PAGE_URL = "https://www.americisss.it/news/"
 STATE_FILE = "last_news.json"
@@ -18,73 +19,37 @@ RECIPIENT = "2fagiani@gmail.com"
 class NewsParser(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.in_heading = False
-        self.current_heading = []
+        self.links = []
         self.current_href = None
-        self.current_link_text = []
-        self.articles = []
-        self.current_article = None
+        self.current_text = []
 
     def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-
-        # I titoli delle news sono heading H2
-        if tag == "h2":
-            self.in_heading = True
-            self.current_heading = []
-
-        # Memorizziamo il link "Leggi di più"
         if tag == "a":
+            attrs = dict(attrs)
             href = attrs.get("href")
 
             if href:
-                self.current_href = urljoin(PAGE_URL, href)
-                self.current_link_text = []
+                self.current_href = href
+                self.current_text = []
 
     def handle_data(self, data):
-        text = " ".join(data.split())
-
-        if self.in_heading and text:
-            self.current_heading.append(text)
-
-        if self.current_href and text:
-            self.current_link_text.append(text)
+        if self.current_href:
+            self.current_text.append(data)
 
     def handle_endtag(self, tag):
-        if tag == "h2":
-            title = " ".join(self.current_heading).strip()
-
-            # Le date delle news hanno questa forma:
-            # 23 agosto 2026
-            if re.match(
-                r"^\d{1,2}\s+"
-                r"(gennaio|febbraio|marzo|aprile|maggio|giugno|"
-                r"luglio|agosto|settembre|ottobre|novembre|dicembre)"
-                r"\s+\d{4}$",
-                title,
-                re.IGNORECASE
-            ):
-                self.current_article = {
-                    "date": title,
-                    "url": None
-                }
-
-            self.in_heading = False
-            self.current_heading = []
-
         if tag == "a" and self.current_href:
-            link_text = " ".join(self.current_link_text).strip()
+            text = " ".join(" ".join(self.current_text).split())
 
-            if (
-                self.current_article
-                and link_text.lower() == "leggi di più"
-            ):
-                self.current_article["url"] = self.current_href
-                self.articles.append(self.current_article)
-                self.current_article = None
+            if text:
+                self.links.append(
+                    (
+                        text,
+                        urljoin(PAGE_URL, self.current_href)
+                    )
+                )
 
             self.current_href = None
-            self.current_link_text = []
+            self.current_text = []
 
 
 def get_news():
@@ -99,7 +64,52 @@ def get_news():
     parser = NewsParser()
     parser.feed(html)
 
-    return parser.articles
+    result = []
+    seen = set()
+
+    for title, url in parser.links:
+        parsed = urlparse(url)
+
+        # Deve essere una pagina del sito
+        if parsed.netloc not in ("www.americisss.it", "americisss.it"):
+            continue
+
+        # Ignora ancore (#content, #menu, ecc.)
+        if parsed.fragment:
+            continue
+
+        # Ignora la pagina principale delle news
+        if url.rstrip("/") == PAGE_URL.rstrip("/"):
+            continue
+
+        # Ignora link generici del sito
+        ignored = [
+            "contatti",
+            "privacy",
+            "cookie",
+            "login",
+            "accessibilita",
+            "accessibilità"
+        ]
+
+        title_lower = title.lower()
+
+        if any(word in title_lower for word in ignored):
+            continue
+
+        # Titoli troppo brevi non sono probabilmente notizie
+        if len(title.strip()) < 10:
+            continue
+
+        if url not in seen:
+            seen.add(url)
+
+            result.append({
+                "title": title.strip(),
+                "url": url
+            })
+
+    return result
 
 
 def load_state():
@@ -118,17 +128,17 @@ def save_state(news):
 def send_email(news):
     message = EmailMessage()
 
-    message["Subject"] = f"Nuova notizia Americisss: {news['date']}"
+    message["Subject"] = "Nuova notizia su Americisss"
     message["From"] = GMAIL_USERNAME
     message["To"] = RECIPIENT
 
     message.set_content(
         f"""È stata pubblicata una nuova notizia sul sito Americisss.
 
-Data:
-{news["date"]}
+Titolo:
+{news["title"]}
 
-Link alla notizia:
+Link:
 {news["url"]}
 
 Pagina News:
@@ -145,14 +155,14 @@ def main():
     news = get_news()
 
     if not news:
-        print("ERRORE: nessuna notizia trovata.")
+        print("Nessuna notizia trovata.")
         return
 
     latest = news[0]
 
-    print("Ultima notizia:")
-    print(f"Data: {latest['date']}")
-    print(f"Link: {latest['url']}")
+    print("Ultima notizia trovata:")
+    print(latest["title"])
+    print(latest["url"])
 
     previous = load_state()
 
@@ -161,10 +171,7 @@ def main():
         save_state(latest)
         return
 
-    if (
-        latest["date"] == previous["date"]
-        and latest["url"] == previous["url"]
-    ):
+    if latest["url"] == previous["url"]:
         print("Nessuna nuova notizia.")
         return
 
