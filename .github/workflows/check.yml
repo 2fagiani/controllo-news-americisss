@@ -26,7 +26,44 @@ jobs:
           GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python check_news.py
+      - name: Diagnostica date News
+        run: |
+          python - <<'PY'
+          import urllib.request
+          import re
 
+          url = "https://www.americisss.it/news/"
+
+          request = urllib.request.Request(
+              url,
+              headers={"User-Agent": "Mozilla/5.0"}
+          )
+
+          html = urllib.request.urlopen(
+              request,
+              timeout=30
+          ).read().decode("utf-8", errors="ignore")
+
+          print("Lunghezza pagina:", len(html))
+
+          pattern = (
+              r'\b\d{1,2}\s+'
+              r'(?:gennaio|febbraio|marzo|aprile|maggio|giugno|'
+              r'luglio|agosto|settembre|ottobre|novembre|dicembre)'
+              r'\s+\d{4}\b'
+          )
+
+          dates = re.findall(
+              pattern,
+              html,
+              re.IGNORECASE
+          )
+
+          print("DATE TROVATE:")
+
+          for date in dates[:20]:
+              print(" -", date)
+          PY
       - name: Salva stato
         run: |
           git config user.name "github-actions[bot]"
