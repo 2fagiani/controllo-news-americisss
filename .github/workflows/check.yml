@@ -1,6 +1,5 @@
-name: Controlla News Americisss
-      - name: Diagnostica pagina News
-        run: |
+- name: Diagnostica pagina News
+  run: |
           python - <<'PY'
           import urllib.request
           from html.parser import HTMLParser
