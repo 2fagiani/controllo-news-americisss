@@ -2,7 +2,7 @@ name: Controlla News Americisss
 
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "0 9 * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,6 +22,9 @@ jobs:
           python-version: "3.x"
 
       - name: Controlla pagina News
+        env:
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python check_news.py
 
       - name: Salva stato
