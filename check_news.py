@@ -4,9 +4,6 @@ import re
 import smtplib
 import urllib.request
 from email.message import EmailMessage
-from html.parser import HTMLParser
-from urllib.parse import urljoin
-
 
 PAGE_URL = "https://www.americisss.it/news/"
 STATE_FILE = "last_news.json"
@@ -15,67 +12,35 @@ GMAIL_USERNAME = os.environ["GMAIL_USERNAME"]
 GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 RECIPIENT = "2fagiani@gmail.com"
 
-
-MONTHS = (
-    "gennaio|febbraio|marzo|aprile|maggio|giugno|"
-    "luglio|agosto|settembre|ottobre|novembre|dicembre"
-)
+MONTHS = {
+    "gennaio": 1,
+    "febbraio": 2,
+    "marzo": 3,
+    "aprile": 4,
+    "maggio": 5,
+    "giugno": 6,
+    "luglio": 7,
+    "agosto": 8,
+    "settembre": 9,
+    "ottobre": 10,
+    "novembre": 11,
+    "dicembre": 12,
+}
 
 DATE_PATTERN = re.compile(
-    rf"\b(\d{{1,2}})\s+({MONTHS})\s+(\d{{4}})\b",
+    r"\b(\d{1,2})\s+"
+    r"(gennaio|febbraio|marzo|aprile|maggio|giugno|"
+    r"luglio|agosto|settembre|ottobre|novembre|dicembre)"
+    r"\s+(\d{4})\b",
     re.IGNORECASE
 )
-
-
-class NewsParser(HTMLParser):
-
-    def __init__(self):
-        super().__init__()
-
-        self.links = []
-        self.current_href = None
-        self.current_text = []
-
-    def handle_starttag(self, tag, attrs):
-
-        if tag == "a":
-
-            attrs = dict(attrs)
-            href = attrs.get("href")
-
-            if href:
-                self.current_href = urljoin(PAGE_URL, href)
-                self.current_text = []
-
-    def handle_data(self, data):
-
-        if self.current_href:
-            self.current_text.append(data)
-
-    def handle_endtag(self, tag):
-
-        if tag == "a" and self.current_href:
-
-            text = " ".join(
-                " ".join(self.current_text).split()
-            )
-
-            self.links.append({
-                "text": text,
-                "url": self.current_href
-            })
-
-            self.current_href = None
-            self.current_text = []
 
 
 def get_page():
 
     request = urllib.request.Request(
         PAGE_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers={"User-Agent": "Mozilla/5.0"}
     )
 
     with urllib.request.urlopen(
@@ -89,178 +54,97 @@ def get_page():
         )
 
 
-def get_news():
+def get_latest_date():
 
     html = get_page()
 
-    parser = NewsParser()
-    parser.feed(html)
-
-    # Troviamo tutte le date presenti nella pagina.
-    dates = list(
-        DATE_PATTERN.finditer(html)
-    )
+    dates = DATE_PATTERN.findall(html)
 
     if not dates:
+        print("ERRORE: nessuna data trovata nella pagina.")
+        return None
 
-        print("ERRORE: nessuna data trovata.")
-        return []
+    found = []
 
-    print("DATE TROVATE:")
+    for day, month, year in dates:
 
-    for match in dates[:20]:
-        print(
-            " -",
-            match.group(0)
+        date_string = f"{day} {month} {year}"
+
+        date_value = (
+            int(year),
+            MONTHS[month.lower()],
+            int(day)
         )
 
-    news = []
-
-    # Le date compaiono due volte:
-    # una volta come data dell'articolo
-    # e una volta vicino a "Leggi di più".
-    #
-    # Prendiamo quindi solo le date che hanno
-    # un link "Leggi di più" nelle vicinanze.
-
-    for match in dates:
-
-        date_text = match.group(0)
-
-        # Porzione di HTML successiva alla data.
-        start = match.end()
-
-        nearby = html[start:start + 3000]
-
-        # Cerchiamo "Leggi di più".
-        leggi = re.search(
-            r'Leggi\s+di\s+più',
-            nearby,
-            re.IGNORECASE
+        found.append(
+            (date_value, date_string)
         )
 
-        if not leggi:
-            continue
-
-        # Cerchiamo il primo href dopo la data.
-        href_match = re.search(
-            r'href=["\']([^"\']+)["\']',
-            nearby[:leggi.end() + 500],
-            re.IGNORECASE
-        )
-
-        if not href_match:
-            continue
-
-        url = urljoin(
-            PAGE_URL,
-            href_match.group(1)
-        )
-
-        # Evitiamo duplicati.
-        if any(
-            item["url"] == url
-            for item in news
-        ):
-            continue
-
-        news.append({
-            "date": date_text,
-            "url": url
-        })
-
-    return news
-
-
-def date_key(date_text):
-
-    months = {
-        "gennaio": 1,
-        "febbraio": 2,
-        "marzo": 3,
-        "aprile": 4,
-        "maggio": 5,
-        "giugno": 6,
-        "luglio": 7,
-        "agosto": 8,
-        "settembre": 9,
-        "ottobre": 10,
-        "novembre": 11,
-        "dicembre": 12
-    }
-
-    match = DATE_PATTERN.search(
-        date_text
+    # Prende la data più recente
+    found.sort(
+        reverse=True
     )
 
-    if not match:
-        return (0, 0, 0)
+    latest = found[0][1]
 
-    day = int(match.group(1))
-    month = months[
-        match.group(2).lower()
-    ]
-    year = int(match.group(3))
+    print("Date trovate:")
 
-    return (
-        year,
-        month,
-        day
-    )
+    for _, date in found[:10]:
+        print(" -", date)
+
+    print("")
+    print("ULTIMA DATA:", latest)
+
+    return latest
 
 
 def load_state():
 
-    if not os.path.exists(
-        STATE_FILE
-    ):
+    if not os.path.exists(STATE_FILE):
         return None
 
     with open(
         STATE_FILE,
         "r",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
-        return json.load(f)
+        return json.load(file)
 
 
-def save_state(news):
+def save_state(date):
 
     with open(
         STATE_FILE,
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         json.dump(
-            news,
-            f,
+            {"date": date},
+            file,
             ensure_ascii=False,
             indent=2
         )
 
 
-def send_email(news):
+def send_email(date):
 
     message = EmailMessage()
 
     message["Subject"] = (
-        f"Nuova notizia Americisss: "
-        f"{news['date']}"
+        f"Nuova notizia su Americisss: {date}"
     )
 
     message["From"] = GMAIL_USERNAME
     message["To"] = RECIPIENT
 
     message.set_content(
-        f"""È stata pubblicata una nuova notizia sul sito Americisss.
+        f"""È stata pubblicata una nuova notizia
+sulla pagina News di Americisss.
 
-Data:
-{news["date"]}
-
-Link alla notizia:
-{news["url"]}
+Data della nuova notizia:
+{date}
 
 Pagina News:
 {PAGE_URL}
@@ -284,60 +168,33 @@ Pagina News:
 
 def main():
 
-    news = get_news()
+    latest_date = get_latest_date()
 
-    if not news:
-
-        print(
-            "ERRORE: nessuna notizia identificata."
-        )
-
+    if latest_date is None:
         return
-
-    # Ordina dalla più recente alla più vecchia.
-    news.sort(
-        key=lambda item: date_key(
-            item["date"]
-        ),
-        reverse=True
-    )
-
-    latest = news[0]
-
-    print("")
-    print("ULTIMA NEWS:")
-    print(
-        "Data:",
-        latest["date"]
-    )
-    print(
-        "Link:",
-        latest["url"]
-    )
 
     previous = load_state()
 
-    # Prima esecuzione:
-    # memorizziamo la news attuale senza inviare email.
+    # Prima esecuzione
     if previous is None:
 
         print(
-            "Prima esecuzione: "
-            "salvo lo stato senza inviare email."
+            "Prima esecuzione: salvo la data "
+            "senza inviare email."
         )
 
-        save_state(
-            latest
-        )
-
+        save_state(latest_date)
         return
 
-    # Controlliamo data + URL.
-    if (
-        latest["date"] == previous.get("date")
-        and
-        latest["url"] == previous.get("url")
-    ):
+    previous_date = previous.get("date")
+
+    print(
+        "Data precedente:",
+        previous_date
+    )
+
+    # Nessuna novità
+    if latest_date == previous_date:
 
         print(
             "Nessuna nuova notizia."
@@ -345,16 +202,17 @@ def main():
 
         return
 
+    # Nuova data
     print(
         "NUOVA NOTIZIA TROVATA!"
     )
 
     send_email(
-        latest
+        latest_date
     )
 
     save_state(
-        latest
+        latest_date
     )
 
     print(
