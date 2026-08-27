@@ -1,0 +1,30 @@
+name: Controlla News Americisss
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Scarica repository
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Controlla pagina News
+        run: python check_news.py
+
+      - name: Salva stato
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last_news.json
+          git diff --cached --quiet || git commit -m "Aggiorna stato news"
+          git push
