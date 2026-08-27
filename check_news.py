@@ -1,10 +1,12 @@
 import json
 import os
+import re
 import smtplib
 import urllib.request
 from email.message import EmailMessage
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+
 
 PAGE_URL = "https://www.americisss.it/news/"
 STATE_FILE = "last_news.json"
@@ -53,9 +55,7 @@ class NewsParser(HTMLParser):
 def get_news():
     request = urllib.request.Request(
         PAGE_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers={"User-Agent": "Mozilla/5.0"}
     )
 
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -64,16 +64,48 @@ def get_news():
     parser = NewsParser()
     parser.feed(html)
 
-    # Evita duplicati
     result = []
     seen = set()
 
     for title, url in parser.links:
+        parsed = urlparse(url)
+
+        # Deve essere una pagina del sito
+        if parsed.netloc not in ("www.americisss.it", "americisss.it"):
+            continue
+
+        # Ignora ancore (#content, #menu, ecc.)
+        if parsed.fragment:
+            continue
+
+        # Ignora la pagina principale delle news
+        if url.rstrip("/") == PAGE_URL.rstrip("/"):
+            continue
+
+        # Ignora link generici del sito
+        ignored = [
+            "contatti",
+            "privacy",
+            "cookie",
+            "login",
+            "accessibilita",
+            "accessibilità"
+        ]
+
+        title_lower = title.lower()
+
+        if any(word in title_lower for word in ignored):
+            continue
+
+        # Titoli troppo brevi non sono probabilmente notizie
+        if len(title.strip()) < 10:
+            continue
+
         if url not in seen:
             seen.add(url)
 
             result.append({
-                "title": title,
+                "title": title.strip(),
                 "url": url
             })
 
@@ -127,26 +159,23 @@ def main():
         return
 
     latest = news[0]
+
+    print("Ultima notizia trovata:")
+    print(latest["title"])
+    print(latest["url"])
+
     previous = load_state()
 
-    print("Ultima notizia:")
-    print(latest)
-
-    # Prima esecuzione: salva lo stato senza mandare email
     if previous is None:
-        print("Prima esecuzione: salvo lo stato.")
+        print("Prima esecuzione: salvo lo stato senza inviare email.")
         save_state(latest)
         return
 
-    # Nessuna modifica
     if latest["url"] == previous["url"]:
         print("Nessuna nuova notizia.")
         return
 
-    # Nuova notizia
     print("NUOVA NOTIZIA TROVATA!")
-    print(latest["title"])
-    print(latest["url"])
 
     send_email(latest)
     save_state(latest)
